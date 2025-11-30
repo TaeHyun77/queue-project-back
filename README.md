@@ -1,3 +1,6 @@
+### 아키텍처
+---
+
 <p align="center"><img width="754" height="225" alt="Image" src="https://github.com/user-attachments/assets/eed55df3-648c-4602-990a-274d1652d14e" /><br><br>
 
 ### 사용 기술
