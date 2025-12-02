@@ -35,7 +35,7 @@ ETC : SSE <br><br>
 ---
 **Transactional Outbox Pattern과 MySQL Debezium Connector을 사용하는 구조**
 
-![image.png](attachment:89aea41b-096b-4d95-85e5-36586194715d:image.png)
+<img width="739" height="332" alt="Image" src="https://github.com/user-attachments/assets/e59b0f03-9021-4374-8fc0-4436d120a306" />
 
 [ Transactional Outbox + Debezium 구조 ]
 
