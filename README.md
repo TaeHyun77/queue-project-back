@@ -31,6 +31,20 @@ ETC : SSE <br><br>
 
 5. 사용자는 실시간으로 갱신되는 자신의 순위를 확인할 수 있으며, confirm 이벤트를 수신하면 예약 페이지로 이동하게 됩니다.<br><br>
 
+### 주요 기술 
+---
+**Transactional Outbox Pattern과 MySQL Debezium Connector을 사용하는 구조**
+
+![image.png](attachment:89aea41b-096b-4d95-85e5-36586194715d:image.png)
+
+[ Transactional Outbox + Debezium 구조 ]
+
+Transactional Outbox 패턴과 Debezium을 함께 사용하면, DB 변경과 이벤트 생성은 하나의 트랜잭션으로 원자성을 보장하고( Outbox ), Outbox 테이블의 이벤트를 메시지 브로커로 전달( Debezium )할 수 있기 때문에 DB 상태와 이벤트 전달 간의 정합성을 맞출 수 있습니다.
+
+Outbox 테이블 변경을 binlog에서 감지하여 Kafka로 publish하고, publish 실패 시 Debezium이 자동으로 재시도하므로 이벤트 유실이 없습니다.
+
+이를 통해 DB 상태와 Kafka 이벤트 스트림 사이의 정합성을 유지할 수 있습니다.<br><br>
+
 ### 구조 개선
 ---
 기존에는 Redis에 대기열 정보를 저장한 뒤 서버에서 직접 SSE 이벤트를 전송했지만, 장애가 발생하여 이벤트가 전달되지 않거나 소실될 경우 서비스에 큰 영향을 줄 수 있었습니다.
