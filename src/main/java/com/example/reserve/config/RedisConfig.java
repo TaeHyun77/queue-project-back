@@ -1,4 +1,4 @@
-package com.example.reserve;
+package com.example.reserve.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,10 +25,9 @@ public class RedisConfig {
     @Bean
     public ReactiveRedisTemplate<String, String> reactiveRedisTemplate(LettuceConnectionFactory lettuceConnectionFactory) {
 
-        RedisSerializationContext<String, String> context =
-                RedisSerializationContext.<String, String>newSerializationContext(new StringRedisSerializer())
-                        .value(new StringRedisSerializer())
-                        .build();
+        RedisSerializationContext<String, String> context = RedisSerializationContext.<String, String>newSerializationContext(new StringRedisSerializer())
+                .value(new StringRedisSerializer())
+                .build();
 
         return new ReactiveRedisTemplate<>(lettuceConnectionFactory, context);
     }
