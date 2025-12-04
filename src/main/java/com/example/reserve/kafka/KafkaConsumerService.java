@@ -1,8 +1,7 @@
 package com.example.reserve.kafka;
 
-import com.example.reserve.queue.QueueEventPayload;
-import com.example.reserve.queue.QueueService;
 import com.example.reserve.sse.SseEventService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,21 +14,21 @@ import org.springframework.stereotype.Service;
 public class KafkaConsumerService {
 
     private final ObjectMapper objectMapper;
-    private final SseEventService sseEventService;
 
-    @KafkaListener(topics = "queue_system_db.queue_system_db.outbox", groupId = "queue-event-group")
-    public void consume(String message) {
+    @KafkaListener(topics = "queue_system_db.queue_system_db.outbox")
+    public void kafkaConsume(String message) {
         try {
-            DebeziumKafkaMessage kafkaMessage = objectMapper.readValue(message, DebeziumKafkaMessage.class);
 
-            DebeziumKafkaMessage.Payload payload = kafkaMessage.getPayload();
-            if (payload != null) {
-                String queueType = payload.getQueue_type();
-                String status = payload.getStatus();
+            JsonNode node = objectMapper.readTree(message);
+            JsonNode payload = node.path("payload");
 
-                sseEventService.getSink().tryEmitNext(new QueueEventPayload(queueType));
-                log.info("Kafka 이벤트 수신 - queueType: {}, status: {}", queueType, status);
-            }
+            String queueType = payload.get("queue_type").asText();
+            String userId = payload.get("user_id").asText();
+
+            log.info("consume - queueType : {} , userId : {}", queueType, userId);
+
+            SseEventService.sink.tryEmitNext(queueType);
+
         } catch (Exception e) {
             log.error("Kafka 메시지 소비 실패", e);
         }

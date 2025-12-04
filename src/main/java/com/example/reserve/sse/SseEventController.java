@@ -16,7 +16,7 @@ public class SseEventController {
 
     private final SseEventService sseEventService;
 
-    /* 1
+    /*
      * 서버와 클라이언트가 SSE 스트림 연결
      * produces = MediaType.TEXT_EVENT_STREAM_VALUE : text/event-stream 타입의 응답을 반환할 것을 의미
      * ServerSentEvent<String> : SSE 형식의 메시지를 의미, Flux<>로 감쌌으므로 여러 개의 sse 메세지를 실시간으로 전송한다는 뜻

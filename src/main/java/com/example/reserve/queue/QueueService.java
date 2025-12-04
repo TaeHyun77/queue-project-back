@@ -1,10 +1,12 @@
 package com.example.reserve.queue;
 
+import com.example.reserve.entity.outbox.QueueStatus;
+import com.example.reserve.entity.outbox.user.User;
+import com.example.reserve.entity.outbox.user.UserRepository;
 import com.example.reserve.exception.ErrorCode;
 import com.example.reserve.exception.ReserveException;
-import com.example.reserve.kafka.KafkaProducerService;
-import com.example.reserve.outbox.Outbox;
-import com.example.reserve.outbox.OutboxRepository;
+import com.example.reserve.entity.outbox.outbox.Outbox;
+import com.example.reserve.entity.outbox.outbox.OutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +20,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -27,27 +29,28 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+import static com.example.reserve.QueueConstant.*;
+
 @Slf4j
 @Getter
 @RequiredArgsConstructor
 @Service
 public class QueueService {
 
-    // Spring WebFlux 환경에서 비동기/논블로킹 방식으로 Redis에 접근
     private final ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
-    private final KafkaProducerService kafkaProducerService;
     private final ObjectMapper objectMapper;
-    private final OutboxRepository outboxRepository;
 
-    private static final String WAIT_QUEUE = ":user-queue:wait";
-    private static final String ALLOW_QUEUE = ":user-queue:allow";
-    private static final String ACCESS_TOKEN = ":user-access:";
-    private static final String TOKEN_TTL_INFO = "reserve" + ":USERS-TTL:INFO";
+    private final UserRepository userRepository;
+    private final OutboxRepository outboxRepository;
 
     /**
      * 대기열 등록 - WAIT
      * */
-    public Mono<Void> registerUserToWaitQueue(String userId, String queueType, long enterTimestamp) {
+    public Mono<Void> registerUserToWaitQueue(
+            String userId,
+            String queueType,
+            long enterTimestamp
+    ) {
 
         // 대기열에 사용자 존재 여부
         Mono<Boolean> existsInWaitQueue = isExistUserInWaitOrAllow(userId, queueType, "wait");
@@ -68,8 +71,10 @@ public class QueueService {
                     return reactiveRedisTemplate.opsForZSet()
                             .add(queueType + WAIT_QUEUE, userId, enterTimestamp)
                             .filter(i -> i)
-                            .switchIfEmpty(Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)))
-                            .flatMap(i -> kafkaProducerService.sendMessage(queueType))
+                            .switchIfEmpty(
+                                    Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER))
+                            )
+                            .flatMap(i -> updateQueue(queueType, userId, QueueStatus.QUEUE_REGISTERED))
                             .doOnSuccess(v -> log.info("{}님 사용자 대기열 등록 성공", userId));
                 });
     }
@@ -86,7 +91,8 @@ public class QueueService {
                 .map(rank -> true)
                 .defaultIfEmpty(false)
                 .doOnSuccess(exists ->
-                        log.info("{}님 {} 존재 여부 : {}", userId, queueCategory.equals("wait") ? "대기열" : "참가열", exists));
+                        log.info("{}님 {} 존재 여부 : {}", userId, queueCategory.equals("wait") ? "대기열" : "참가열", exists)
+                );
     }
 
     /**
@@ -125,7 +131,7 @@ public class QueueService {
                         }
 
                         return Mono.fromRunnable(() -> {
-                            sendEventToKafka(queueType, userId, "CANCELED");
+                            updateQueue(queueType, userId, QueueStatus.QUEUE_REMOVED);
                         });
                     })
                     .doOnSuccess(v -> log.info("{}님 대기열에서 취소 완료", userId))
@@ -212,20 +218,6 @@ public class QueueService {
     }
 
     /**
-     * 대기열에서 새로고침 시 대기열 후순위 재등록 로직 - WAIT
-     * */
-    public Mono<Void> reEnterWaitQueue(String userId, String queueType) {
-
-        Instant now = Instant.now();
-        long newTimestamp = now.getEpochSecond() * 1_000_000_000L + now.getNano(); // 현재 시각, 새로고침 시 대기열 후순위 설정을 위함
-
-        return reactiveRedisTemplate.opsForZSet()
-                .add(queueType + WAIT_QUEUE, userId, newTimestamp)
-                .then(Mono.fromRunnable(() -> sendEventToKafka(queueType, userId, "WAIT")))
-                .then();
-    }
-
-    /**
      * 대기열에 있는 상위 count 명을 참가열로 옮기고, 토큰을 생성하여 redis에 저장 ( 유효 기간 10분 ) - ALLOW
      */
     public Mono<Long> allowUser(String queueType, Long count) {
@@ -250,7 +242,7 @@ public class QueueService {
                                     reactiveRedisTemplate.opsForZSet()
                                             .add(TOKEN_TTL_INFO, userId, expireEpochSeconds)
                             )
-                            .flatMap(i -> sendEventToKafka(queueType, userId, "ALLOW"))
+                            .flatMap(i -> updateQueue(queueType, userId, QueueStatus.QUEUE_ALLOW))
                             .thenReturn(userId);
                 })
                 .count()
@@ -275,22 +267,43 @@ public class QueueService {
 
     // Outbox 테이블에 변동 사항이 발생하면 kafka 이벤트가 ( 전체 레코드가 JSON 형태로 ) 발행됨
     @Transactional
-    public Mono<Void> sendEventToKafka(String queueType, String userId, String status) {
-        return Mono.fromRunnable(() -> {
-            outboxRepository.findByUserId(userId)
-                    .map(existing -> {
-                        log.info("상태 변경 ⇒ {}", status);
-                        existing.updateUserStatus(status);
-                        return outboxRepository.save(existing);
-                    })
-                    .orElseGet(() -> {
-                        Outbox newOutbox = Outbox.builder()
-                                .queueType(queueType)
-                                .userId(userId)
-                                .status(status)
-                                .build();
-                        return outboxRepository.save(newOutbox);
-                    });
-        });
+    public Mono<Void> updateQueue(String queueType, String userId, QueueStatus queueStatus) {
+
+        return Mono.fromCallable(() -> {
+                    // 유저 조회
+                    User user = userRepository.findByUserId(userId)
+                            .map(existing -> {
+                                log.info("상태 변경 ⇒ {}", queueStatus);
+
+                                existing.updateStatus(queueStatus);
+                                return existing;
+                            })
+                            .orElseGet(() -> {
+                                // 신규 유저 생성
+                                return User.builder()
+                                        .userId(userId)
+                                        .queue_Queue_status(queueStatus)
+                                        .build();
+                            });
+
+                    // 유저 저장
+                    User savedUser = userRepository.save(user);
+
+                    // 3. Outbox 저장
+                    Outbox outbox = Outbox.builder()
+                            .aggregate_type("user")
+                            .aggregate_id(savedUser.getId())
+                            .event_type(queueStatus)
+                            .queueType(queueType)
+                            .userId(userId)
+                            .build();
+
+                    outboxRepository.save(outbox);
+
+                    return true;
+                })
+                .subscribeOn(Schedulers.boundedElastic())  // 블로킹 전용 스레드풀에서 실행
+                .then();
     }
+
 }

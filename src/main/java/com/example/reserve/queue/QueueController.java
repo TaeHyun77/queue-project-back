@@ -53,15 +53,6 @@ public class QueueController {
         return queueService.cancelWaitUser(userId, queueType, queueCategory);
     }
 
-    // 새로고침 시 대기열 후순위 재등록
-    @PostMapping("/reEnter")
-    public Mono<Void> reEnterQueue(@RequestParam(name = "user_id") String user_id,
-                                   @RequestParam(name = "queueType", defaultValue = "reserve") String queueType) {
-
-        log.info("reEnter 호출 완료");
-        return queueService.reEnterWaitQueue(user_id, queueType);
-    }
-
     // 대기열 상위 count명을 참가열 이동
     @PostMapping("/allow")
     public Mono<?> allowUser(@RequestParam(name = "queueType", defaultValue = "reserve") String queueType,
