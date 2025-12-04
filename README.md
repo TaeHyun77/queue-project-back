@@ -13,7 +13,7 @@ DB/Cache : MySQL, Redis
 
 INFRA : Kafka
 
-ETC : SSE <br><br>
+ETC : SSE, MySQL Debezium Connector <br><br>
 
 ### 요청 흐름
 
