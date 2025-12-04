@@ -5,9 +5,9 @@
 
 ### 사용 기술
 ---
-BE : SpringBoot, Spring Webflux, Java
+Backend : SpringBoot, Spring Webflux, Java
 
-FE : React.js, JavaScript
+Frontend : React.js, JavaScript
 
 DB/Cache : MySQL, Redis
 
