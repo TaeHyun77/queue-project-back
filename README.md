@@ -14,7 +14,7 @@ Frontend : React.js, JavaScript
 
 DB/Cache : MySQL, Redis
 
-INFRA : Kafka
+INFRA : Kafka, Kafka Connect
 
 ETC : SSE, MySQL Debezium Connector <br><br>
 
