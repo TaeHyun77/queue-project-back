@@ -58,52 +58,33 @@ public class QueueService {
         String queueKey = queueType + WAIT_QUEUE;
 
         return Mono.zip(
-            isExistUserInWaitOrAllow(userId, queueType, "wait"),
-            isExistUserInWaitOrAllow(userId, queueType, "allow")
-        )
-        .flatMap(tuple -> { // flatMap : 콜백 안에서 Mono/Flux 를 리턴해야하는 경우 사용
-            boolean inWait = tuple.getT1();
-            boolean inAllow = tuple.getT2();
-
-            if (inWait || inAllow) {
-                return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
-            }
-
-            return reactiveRedisTemplate.opsForZSet()
-                    .add(queueKey, userId, enterTimestamp)
-                    .flatMap(added -> {
-                        if (!added) {
-                            return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
-                        }
-
-                        return updateQueue(queueType, userId, QueueStatus.QUEUE_REGISTERED);
-                    })
-                    .doOnNext(m -> log.info("{}님 사용자 대기열 등록 성공", userId));
-        })
-        .doOnError(e -> log.error("대기열 등록 오류: userId={}, {}", userId, e.getMessage()));
-
-    }
-
-    /**
-     * 대기열 or 참가열에서 사용자 존재 여부 확인
-     */
-    public Mono<Boolean> isExistUserInWaitOrAllow(
-            String userId,
-            String queueType,
-            String queueCategory
-    ) {
-
-        String keyType = toKeySuffix(queueCategory);
-        String queueName = queueType + keyType;
-
-        return reactiveRedisTemplate.opsForZSet()
-                .rank(queueName, userId)
-                .map(rank -> true) // rank 값이 있다면 true로 변환, 해당 사용자가 존재하지 않는다면 Mono.empty() 반환
-                .defaultIfEmpty(false)
-                .doOnNext(exists ->
-                        log.info("{}님 {} 존재 여부 : {}", userId, queueCategory.equals("wait") ? "대기열" : "참가열", exists)
+                searchUserRanking(userId, queueType, "wait"),
+                searchUserRanking(userId, queueType, "allow"),
+                (inWait, inAllow) -> new Long[]{inWait, inAllow}
                 )
-                .doOnError(e -> log.error("사용자 존재 여부 파악 오류: userId={}, {}", userId, e.getMessage()));
+                .flatMap(arr -> {
+                    Long inWait = arr[0];
+                    Long inAllow = arr[1];
+
+                    boolean isRegistered = (inWait != -1 || inAllow != -1);
+
+                    if (isRegistered) {
+                        return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
+                    }
+
+                    return reactiveRedisTemplate.opsForZSet()
+                            .add(queueKey, userId, enterTimestamp)
+                            .flatMap(added -> {
+                                if (!added) {
+                                    return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
+                                }
+                                return updateQueue(queueType, userId, QueueStatus.QUEUE_REGISTERED);
+                            })
+                            .doOnNext(m -> log.info("{}님 사용자 대기열 등록 성공", userId));
+                })
+                .doOnError(e -> log.error("대기열 등록 오류: userId={}, {}", userId, e.getMessage()))
+                .then();
+
     }
 
     /**
@@ -276,7 +257,6 @@ public class QueueService {
                         log.info("참가열로 이동된 사용자 수: {}", allowedCount)
                 );
     }
-
 
     /**
      * 대기열의 사용자를 참가열로 maxAllowedUsers 명 옮기는 scheduling 코드
