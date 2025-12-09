@@ -35,10 +35,9 @@ public class SseEventService {
                 .flatMap(event ->
 
                         // 참가열에 존재 여부에 따라 분기
-                        queueService.isExistUserInWaitOrAllow(userId, queueType, "allow")
-                                .flatMap(isAllowed -> isAllowed
-                                        ? handleAllowedUser(userId)
-                                        : handleWaitingUser(userId, queueType)
+                        queueService.searchUserRanking(userId, queueType, "allow")
+                                .flatMap(rank ->
+                                        (rank != -1) ? handleAllowedUser(userId) : handleWaitingUser(userId, queueType)
                                 )
                 );
     }

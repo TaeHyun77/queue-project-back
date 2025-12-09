@@ -29,14 +29,6 @@ public class QueueController {
         return queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp);
     }
 
-    // 대기열 or 참가열에서 사용자 존재 유무 확인
-    @GetMapping("/isExist")
-    public Mono<Boolean> isExistUserInQueue(@RequestParam(name = "user_id") String userId,
-                                            @RequestParam(name = "queueType", defaultValue = "reserve") String queueType,
-                                            @RequestParam(name = "queueCategory") String queueCategory) {
-        return queueService.isExistUserInWaitOrAllow(userId, queueType, queueCategory);
-    }
-
     // 대기열 or 참가열에서 사용자 순위 조회
     @GetMapping("/search/ranking")
     public Mono<Long> searchUserRanking(@RequestParam(name = "user_id") String userId,
