@@ -21,12 +21,7 @@ public class QueueController {
     public Mono<Void> registerUser(@PathVariable("queueType") String queueType,
                                    @PathVariable("userId") String userId) {
 
-        Instant now = Instant.now();
-        long enterTimestamp = now.getEpochSecond() * 1_000_000_000L + now.getNano() / 1000L;
-
-        log.info("userId : {}, enterTimestamp : {}", userId, enterTimestamp);
-
-        return queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp);
+        return queueService.registerUserToWaitQueue(userId, queueType);
     }
 
     // 대기열 or 참가열에서 사용자 순위 조회

@@ -51,40 +51,62 @@ public class QueueService {
      * */
     public Mono<Void> registerUserToWaitQueue(
             String userId,
-            String queueType,
-            long enterTimestamp
+            String queueType
     ) {
 
         String queueKey = queueType + WAIT_QUEUE;
 
         return Mono.zip(
-                searchUserRanking(userId, queueType, "wait"),
-                searchUserRanking(userId, queueType, "allow"),
-                (inWait, inAllow) -> new Long[]{inWait, inAllow}
+                        searchUserRanking(userId, queueType, "wait"),
+                        searchUserRanking(userId, queueType, "allow"),
+                        (inWait, inAllow) -> new Long[]{ inWait, inAllow }
                 )
                 .flatMap(arr -> {
+
                     Long inWait = arr[0];
                     Long inAllow = arr[1];
 
                     boolean isRegistered = (inWait != -1 || inAllow != -1);
 
                     if (isRegistered) {
-                        return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
+                        return Mono.error(new ReserveException(
+                                HttpStatus.BAD_REQUEST,
+                                ErrorCode.ALREADY_REGISTERED_USER
+                        ));
                     }
 
-                    return reactiveRedisTemplate.opsForZSet()
-                            .add(queueKey, userId, enterTimestamp)
-                            .flatMap(added -> {
-                                if (!added) {
-                                    return Mono.error(new ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER));
-                                }
-                                return updateQueue(queueType, userId, QueueStatus.QUEUE_REGISTERED);
-                            })
-                            .doOnNext(m -> log.info("{}님 사용자 대기열 등록 성공", userId));
+                    return generateScore()
+                            .flatMap(score ->
+                                    reactiveRedisTemplate.opsForZSet()
+                                            .add(queueKey, userId, score)
+                                            .flatMap(added -> {
+                                                if (!added) {
+                                                    return Mono.error(new ReserveException(
+                                                            HttpStatus.BAD_REQUEST,
+                                                            ErrorCode.ALREADY_REGISTERED_USER
+                                                    ));
+                                                }
+                                                return updateQueue(queueType, userId, QueueStatus.QUEUE_REGISTERED);
+                                            })
+                                            .doOnNext(m -> log.info("{}님 사용자 대기열 등록 성공", userId))
+                            );
                 })
-                .doOnError(e -> log.error("대기열 등록 오류: userId={}, {}", userId, e.getMessage()))
+                .doOnError(e ->
+                        log.error("대기열 등록 오류: userId={}, {}", userId, e.getMessage())
+                )
                 .then();
+    }
 
+    public Mono<Long> generateScore() {
+        long timestampMicros = Instant.now().toEpochMilli() * 1000;
+
+        return reactiveRedisTemplate.opsForValue()
+                .increment("queue:seq") // 전역 증가값
+                .map(seq -> {
+                    long seqMasked = seq & 0xFFFFF; // 하위 20bit만 사용
+
+                    return (timestampMicros << 20) | seqMasked;
+                });
     }
 
     /**
